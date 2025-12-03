@@ -2,7 +2,7 @@
 
 Drivetrain *Drivetrain::instance = nullptr;
 
-DrivetrainP::DrivetrainPID(
+Drivetrain::Drivetrain(
     int in1, int in2, int ena,
     int in3, int in4, int enb,
     int encA_A, int encA_B,
@@ -50,7 +50,7 @@ void Drivetrain::attachInterrupts()
 // ============================================
 void Drivetrain::handleA_ISR()
 {
-        DrivetrainPID *dt = instance;
+        Drivetrain *dt = instance;
         int stateA = digitalRead(dt->encA_A);
 
         if (dt->lastAstate == LOW && stateA == HIGH)
@@ -72,7 +72,7 @@ void Drivetrain::handleA_ISR()
 // ============================================
 void Drivetrain::handleB_ISR()
 {
-        DrivetrainPID *dt = instance;
+        Drivetrain *dt = instance;
         int stateB = digitalRead(dt->encB_A);
 
         if (dt->lastBstate == LOW && stateB == HIGH)
