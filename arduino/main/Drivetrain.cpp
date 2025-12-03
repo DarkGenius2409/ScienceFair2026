@@ -1,7 +1,10 @@
 #include "Drivetrain.h"
 
-Drivetrain *Drivetrain::instance = nullptr;
+DrivetrainPID *Drivetrain::instance = nullptr;
 
+// -----------------------------------------
+// CONSTRUCTOR
+// -----------------------------------------
 Drivetrain::Drivetrain(
     int in1, int in2, int ena,
     int in3, int in4, int enb,
@@ -25,7 +28,6 @@ Drivetrain::Drivetrain(
         pinMode(in1, OUTPUT);
         pinMode(in2, OUTPUT);
         pinMode(ena, OUTPUT);
-
         pinMode(in3, OUTPUT);
         pinMode(in4, OUTPUT);
         pinMode(enb, OUTPUT);
@@ -35,31 +37,30 @@ Drivetrain::Drivetrain(
         pinMode(encB_A, INPUT);
         pinMode(encB_B, INPUT);
 
-        lastAstate = digitalRead(encA_A);
-        lastBstate = digitalRead(encB_A);
+        lastAState = digitalRead(encA_A);
+        lastBState = digitalRead(encB_A);
 }
 
-void Drivetrain::attachInterrupts()
+// -----------------------------------------
+// INTERRUPTS
+// -----------------------------------------
+void DrivetrainPID::attachInterrupts()
 {
-        attachInterrupt(digitalPinToInterrupt(encA_A), handleA_ISR, CHANGE);
-        attachInterrupt(digitalPinToInterrupt(encB_A), handleB_ISR, CHANGE);
+        attachInterrupt(digitalPinToInterrupt(encA_A), encoderA_ISR, CHANGE);
+        attachInterrupt(digitalPinToInterrupt(encB_A), encoderB_ISR, CHANGE);
 }
 
-// ============================================
-// ISR: Encoder A
-// ============================================
-void Drivetrain::handleA_ISR()
+void Drivetrain::encoderA_ISR()
 {
         Drivetrain *dt = instance;
-        int stateA = digitalRead(dt->encA_A);
 
-        if (dt->lastAstate == LOW && stateA == HIGH)
+        int state = digitalRead(dt->encA_A);
+        if (dt->lastAState == LOW && state == HIGH)
         {
                 int val = digitalRead(dt->encA_B);
                 dt->dirA = (val == HIGH);
         }
-
-        dt->lastAstate = stateA;
+        dt->lastAState = state;
 
         if (dt->dirA)
                 dt->pulsesA++;
@@ -67,21 +68,17 @@ void Drivetrain::handleA_ISR()
                 dt->pulsesA--;
 }
 
-// ============================================
-// ISR: Encoder B
-// ============================================
-void Drivetrain::handleB_ISR()
+void Drivetrain::encoderB_ISR()
 {
         Drivetrain *dt = instance;
-        int stateB = digitalRead(dt->encB_A);
 
-        if (dt->lastBstate == LOW && stateB == HIGH)
+        int state = digitalRead(dt->encB_A);
+        if (dt->lastBState == LOW && state == HIGH)
         {
                 int val = digitalRead(dt->encB_B);
                 dt->dirB = (val == HIGH);
         }
-
-        dt->lastBstate = stateB;
+        dt->lastBState = state;
 
         if (dt->dirB)
                 dt->pulsesB++;
@@ -89,9 +86,9 @@ void Drivetrain::handleB_ISR()
                 dt->pulsesB--;
 }
 
-// ============================================
-// MOTOR CONTROL
-// ============================================
+// -----------------------------------------
+// MOTOR LOW-LEVEL
+// -----------------------------------------
 void Drivetrain::setMotor(int inA, int inB, int pwmPin, int speed)
 {
         speed = constrain(speed, -255, 255);
@@ -110,66 +107,102 @@ void Drivetrain::setMotor(int inA, int inB, int pwmPin, int speed)
         }
 }
 
-// ============================================
-// RPM CALCULATION
-// ============================================
+// -----------------------------------------
+// RPM UPDATE
+// -----------------------------------------
 void Drivetrain::updateRPM()
 {
         if (millis() - lastRPMTime >= 100)
-        {                                       // update every 0.1 sec
-                rpmA = (pulsesA * 600.0) / PPR; // 600 = 60 sec / 0.1 sec
+        {
+                rpmA = (pulsesA * 600.0) / PPR;
                 rpmB = (pulsesB * 600.0) / PPR;
 
-                pulsesA = 0;
-                pulsesB = 0;
-
+                pulsesA = pulsesB = 0;
                 lastRPMTime = millis();
         }
 }
 
-// ============================================
-// PID UPDATE
-// ============================================
+// -----------------------------------------
+// PID LOOP
+// -----------------------------------------
 void Drivetrain::updatePID()
 {
         updateRPM();
 
-        // ---- Left motor PID ----
-        float errorA = targetRPM_A - rpmA;
-        integralA += errorA * 0.1;
-        float derivativeA = (errorA - errorA_prev) / 0.1;
-        errorA_prev = errorA;
+        float dt = 0.1;
 
-        pwmA += kP * errorA + kI * integralA + kD * derivativeA;
+        // LEFT MOTOR PID
+        float errA = targetRPM_A - rpmA;
+        integralA += errA * dt;
+        float derivA = (errA - prevErrA) / dt;
+        prevErrA = errA;
+
+        pwmA += kP * errA + kI * integralA + kD * derivA;
         pwmA = constrain(pwmA, -255, 255);
 
-        // ---- Right motor PID ----
-        float errorB = targetRPM_B - rpmB;
-        integralB += errorB * 0.1;
-        float derivativeB = (errorB - errorB_prev) / 0.1;
-        errorB_prev = errorB;
+        // RIGHT MOTOR PID
+        float errB = targetRPM_B - rpmB;
+        integralB += errB * dt;
+        float derivB = (errB - prevErrB) / dt;
+        prevErrB = errB;
 
-        pwmB += kP * errorB + kI * integralB + kD * derivativeB;
+        pwmB += kP * errB + kI * integralB + kD * derivB;
         pwmB = constrain(pwmB, -255, 255);
 
-        // Apply motor output
+        // APPLY PWM
         setMotor(in1, in2, ena, pwmA);
         setMotor(in3, in4, enb, pwmB);
 }
 
-// ============================================
-// Set speed in RPM
-// ============================================
-void Drivetrain::setSpeed(float leftRPM, float rightRPM)
+// -----------------------------------------
+// PRESERVED ORIGINAL METHODS
+// -----------------------------------------
+void Drivetrain::drive(int leftPWM, int rightPWM)
+{
+        setMotor(in1, in2, ena, leftPWM);
+        setMotor(in3, in4, enb, rightPWM);
+}
+
+void Drivetrain::forward(int speedPWM)
+{
+        drive(speedPWM, speedPWM);
+}
+
+void Drivetrain::backward(int speedPWM)
+{
+        drive(-speedPWM, -speedPWM);
+}
+
+void Drivetrain::left(int speedPWM)
+{
+        drive(speedPWM * 0.5, speedPWM);
+}
+
+void Drivetrain::right(int speedPWM)
+{
+        drive(speedPWM, speedPWM * 0.5);
+}
+
+void Drivetrain::pivotLeft(int speedPWM)
+{
+        drive(-speedPWM, speedPWM);
+}
+
+void Drivetrain::pivotRight(int speedPWM)
+{
+        drive(speedPWM, -speedPWM);
+}
+
+void Drivetrain::stop()
+{
+        drive(0, 0);
+}
+
+// -----------------------------------------
+// NEW CLOSED-LOOP CONTROL
+// -----------------------------------------
+void Drivetrain::setSpeedRPM(float leftRPM, float rightRPM)
 {
         targetRPM_A = leftRPM;
         targetRPM_B = rightRPM;
-}
-
-// ============================================
-void Drivetrain::stop()
-{
-        targetRPM_A = targetRPM_B = 0;
-        setMotor(in1, in2, ena, 0);
-        setMotor(in3, in4, enb, 0);
 }

@@ -15,6 +15,47 @@ void setup()
 
 void loop()
 {
-        dt.setSpeed(120, 120); // command both wheels to 120 RPM
-        dt.updatePID();
+        if (Serial.available())
+        {
+                String cmd = Serial.readStringUntil('\n');
+                cmd.trim();
+
+                if (cmd.startsWith("FWD"))
+                {
+                        int spd = cmd.substring(4).toInt();
+                        dt.forward(spd);
+                }
+                else if (cmd.startsWith("BACK"))
+                {
+                        int spd = cmd.substring(5).toInt();
+                        dt.backward(spd);
+                }
+                else if (cmd.startsWith("TURNL"))
+                {
+                        int spd = cmd.substring(6).toInt();
+                        dt.left(spd);
+                }
+                else if (cmd.startsWith("TURNR"))
+                {
+                        int spd = cmd.substring(6).toInt();
+                        dt.right(spd);
+                }
+                else if (cmd == "STOP")
+                {
+                        dt.stop();
+                }
+                else if (cmd.startsWith("SET_PID"))
+                {
+                        // Example: SET_PID 20 1.2 0.5
+                        float kp, ki, kd;
+                        sscanf(cmd.c_str(), "SET_PID %f %f %f", &kp, &ki, &kd);
+                        dt.setPID(kp, ki, kd);
+                }
+        }
+
+        // Optional: Arduino sends encoder RPM updates to Pi
+        Serial.print("RPM L:");
+        Serial.print(dt.leftRPM);
+        Serial.print(" R:");
+        Serial.println(dt.rightRPM);
 }
